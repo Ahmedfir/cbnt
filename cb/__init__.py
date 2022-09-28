@@ -1,9 +1,9 @@
 import json
 from os.path import isfile
 
-from code_bert_mlm import CodeBertMlmFillMask
-from json_locs_parser import JobConfig
-from json_locs_parser import ListFileLocations
+from cb.code_bert_mlm import CodeBertMlmFillMask
+from cb.json_locs_parser import JobConfig
+from cb.json_locs_parser import ListFileLocations
 
 PREDICTIONS_FILE_NAME = 'predictions.pickle'
 

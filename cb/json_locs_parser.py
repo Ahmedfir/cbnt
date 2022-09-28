@@ -10,10 +10,10 @@ import pandas as pd
 from pandas import DataFrame
 from pydantic import BaseModel
 
-from code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS, MASK, ListCodeBertPrediction
-from job_config import JobConfig
-from predict_json_locs import surround_method, cut_method
-from replacement_mutants import FileReplacementMutants, ReplacementMutant
+from cb.code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS, MASK, ListCodeBertPrediction
+from cb.job_config import JobConfig
+from cb.predict_json_locs import surround_method, cut_method
+from cb.replacement_mutants import FileReplacementMutants, ReplacementMutant
 from utils.assertion_utils import is_empty_strip
 from utils.file_read_write import load_file
 

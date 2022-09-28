@@ -1,9 +1,6 @@
 from enum import Enum
 from typing import List
 
-from delta_time_printer import DeltaTime
-
-
 class ShorteningStrategy(Enum):
     FIRST_ITEM = 0  # not implemented
     LAST_ITEM = 1
