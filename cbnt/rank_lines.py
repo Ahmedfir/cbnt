@@ -5,7 +5,7 @@ from os.path import isfile, isdir, join
 import pandas as pd
 
 from cb import ListFileLocations
-from utils.pickle_utils import load_zipped_pickle, save_zipped_pickle
+from commons.pickle_utils import load_zipped_pickle, save_zipped_pickle
 
 INTERMEDIATE_PICKLE_SUFFIX = '_cbnt.pickle'
 FL_COLUMN = 'fl'
