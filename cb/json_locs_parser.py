@@ -36,8 +36,7 @@ class Location(BaseModel):
     predictions: ListCodeBertPrediction = None
     original_token: str = None
 
-    def get_pred_req(self, file_string, method_start, method_end,
-                     method_tokens, cbm,
+    def get_pred_req(self, file_string, method_start, method_end, method_tokens, cbm,
                      method_before_tokens, method_after_tokens):
         code_position = self.codePosition
         start = code_position.startPosition
@@ -280,7 +279,7 @@ class Method:
 class Mutant:
 
     def __init__(self, proj_bug_id, id, cosine, rank, version, match_org, score, file_path, class_name,
-                 method_signature, line, has_suffix):
+                 method_signature, line, has_suffix, nodeType):
         self.proj_bug_id = proj_bug_id
         self.id = id
         self.cosine = cosine
@@ -296,6 +295,7 @@ class Mutant:
         self.method_signature = method_signature
         self.line = line
         self.has_suffix = has_suffix
+        self.nodeType = nodeType
 
 
 class VersionName(Enum):
@@ -326,7 +326,7 @@ class ListFileLocations(BaseModel):
         return pd.DataFrame(
             [vars(Mutant(proj_bug_id, mutant.id, mutant.cosine, mutant.rank, version, mutant.match_org, mutant.score,
                          fileP.file_path, classP.qualifiedName, methodP.methodSignature, lineP.line_number,
-                         is_empty_strip(location.suffix)))
+                         is_empty_strip(location.suffix), location.nodeType))
 
              for fileP in self.__root__
              for classP in fileP.classPredictions
@@ -342,7 +342,7 @@ class ListFileLocations(BaseModel):
                        , mutant.rank, version_filter(fileP.file_path, lineP.line_number, changes),
                        mutant.match_org_nosuf, mutant.score,
                        fileP.file_path, classP.qualifiedName, methodP.methodSignature, lineP.line_number,
-                       is_empty_strip(location.suffix)))
+                       is_empty_strip(location.suffix), location.nodeType))
 
                 for fileP in self.__root__
                 for classP in fileP.classPredictions
