@@ -2,6 +2,7 @@ import logging
 import sys
 from os import makedirs
 from os.path import join, isfile, isdir
+from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import List
 
@@ -29,7 +30,7 @@ class ReplacementMutant:
         return original[: self.start] + self.replacement + original[self.end:]
 
     def output_mutated_file(self, output_dir, tmp_original_file=None):
-        output_file = join(output_dir, str(self.id), self.file_path)
+        output_file = join(output_dir, str(self.id), Path(self.file_path).name)
         if not isfile(output_file):
             if not isdir(join(output_dir, str(self.id))):
                 makedirs(join(output_dir, str(self.id)))
