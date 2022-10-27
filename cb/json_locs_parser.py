@@ -279,7 +279,7 @@ class Method:
 class Mutant:
 
     def __init__(self, proj_bug_id, id, cosine, rank, version, match_org, score, file_path, class_name,
-                 method_signature, line, has_suffix, nodeType):
+                 method_signature, line, has_suffix, nodeType, masked_on_added=False):
         self.proj_bug_id = proj_bug_id
         self.id = id
         self.cosine = cosine
@@ -296,6 +296,7 @@ class Mutant:
         self.line = line
         self.has_suffix = has_suffix
         self.nodeType = nodeType
+        self.masked_on_added = masked_on_added
 
 
 class VersionName(Enum):
