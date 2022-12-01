@@ -58,6 +58,14 @@ class ReplacementMutant:
                 write_file(self.file_path, tmp_original_file)
 
 
+class DetailedReplacementMutant(ReplacementMutant):
+    def __init__(self, line: int, original_value: str, node_type: str, *args, **kargs):
+        super(DetailedReplacementMutant, self).__init__(*args, **kargs)
+        self.line = line
+        self.original_value = original_value
+        self.node_type = node_type
+
+
 class FileReplacementMutants:
     def __init__(self, file_path: str, mutants: List[ReplacementMutant]):
         self.file_path = file_path

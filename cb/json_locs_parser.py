@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from cb.code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS, MASK, ListCodeBertPrediction
 from cb.job_config import JobConfig
 from cb.predict_json_locs import surround_method, cut_method
-from cb.replacement_mutants import FileReplacementMutants, ReplacementMutant
+from cb.replacement_mutants import FileReplacementMutants, ReplacementMutant, DetailedReplacementMutant
 from utils.assertion_utils import is_empty_strip
 from utils.file_read_write import load_file
 
@@ -335,6 +335,29 @@ class ListFileLocations(BaseModel):
              for lineP in methodP.line_predictions
              for location in lineP.locations if location.predictions is not None
              for mutant in location.predictions.__root__])
+
+    def get_mutant_by_id(self, include):
+        if include is None:
+            return self.get_mutants_to_exec(self, None)
+        elif isinstance(include, (list, tuple, set)):
+            include_ids = set(include)
+        else:
+            include_ids = {include}
+
+        result = [DetailedReplacementMutant(lineP.line_number, location.original_token,
+                                            str(location.nodeType),
+                                            m.id, fileP.file_path, location.codePosition.startPosition,
+                                            location.codePosition.endPosition + 1, m.token_str + location.suffix)
+
+                  for fileP in self.__root__
+                  for classP in fileP.classPredictions
+                  for methodP in classP.methodPredictions
+                  for lineP in methodP.line_predictions
+                  for location in lineP.locations if location.predictions is not None
+                  for m in location.predictions.__root__ if
+                  m.id in include_ids]
+
+        return result
 
     def to_mutants_versionfilter(self, version_filter, line_filter, proj_bug_id, changes: dict):
         return pd.DataFrame(
