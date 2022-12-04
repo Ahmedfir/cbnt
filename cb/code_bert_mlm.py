@@ -142,7 +142,7 @@ class CodeBertModel:
             embeddings = self.get_context_embed_batch(list_list_tokens)
         # fixme improve memory usage by freeing the tokens on
         # separate it to chunks: original + k predictions
-        if batch_size > 0:
+        if batch_size == 0:
             chunk_size = k + 1
             chunks = [list(embeddings[i:i + chunk_size]) for i in range(len(embeddings))[::chunk_size]]
             sims = [cosine_similarity_chunk(torch_cosine, c[0], c[1:]) for c in chunks]

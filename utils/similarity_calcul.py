@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import List
 
+
 class ShorteningStrategy(Enum):
     FIRST_ITEM = 0  # not implemented
     LAST_ITEM = 1
@@ -59,29 +60,3 @@ def scipy_cosine(matrix1, matrix2):
     # delta_time.print('cosine_similarity_mats sim')
     return sim
 
-
-# not used
-# def cosine_similarity_mats_TF(matrix1, matrix2):
-    """
-    the result of this method is ~ 0.006 < than cosine_similarity_mats
-    this method needs over 5 seconds to run while cosine_similarity_mats runs in less than 0.20 seconds.
-    :param matrix1:
-    :param matrix2:
-    :return:
-    """
-    # import tensorflow._api.v2.compat.v1 as tf
-    # tf.disable_v2_behavior()
-    # import torch
-    # delta_time = DeltaTime()
-    # with torch.no_grad():
-    #     x = tf.constant(matrix1)
-    #     y = tf.constant(matrix2)
-    #     try:
-    #         distance = tf.losses.cosine_distance(tf.nn.l2_normalize(x, 0), tf.nn.l2_normalize(y, 0), dim=0)
-    #         # distance = tf.losses.cosine_distance(x, y, dim=0)
-    #         sim = 1 - (tf.Session().run(distance))
-    #         delta_time.print('cosine_similarity_mats')
-    #         return sim
-    #     except ValueError:
-    #         print("normalisation issue")
-    #         raise
