@@ -30,8 +30,8 @@ MAX_BATCH_SIZE = 20
 
 
 class CbSizeFitter(SizeFitter):
-    def __init__(self, items_arr):
-        super(CbSizeFitter, self).__init__(items_arr, size=MAX_TOKENS, filling_item=SPACE_TOKEN)
+    def __init__(self, items_arr, max_size: int = MAX_TOKENS):
+        super(CbSizeFitter, self).__init__(items_arr, size=max_size, filling_item=SPACE_TOKEN)
 
 
 class CodeBertModel:
@@ -154,13 +154,13 @@ class CodeBertModel:
         return sims
 
     @tuple_to_list
-    def cosine_similarity_tokens(self, code_tokens_1, code_tokens_2):
+    def cosine_similarity_tokens(self, code_tokens_1, code_tokens_2, max_size=MAX_TOKENS):
         assert_not_empty(code_tokens_1, code_tokens_2)
         # both tokens vectors have to be smaller or equal to max_size.
         # remove same number of tokens from the end of both sequences:
         # we don't want to have impactful differences which are not related to the mutation.
         delta_time = DeltaTime()
-        same_size_token_lists = CbSizeFitter([code_tokens_1, code_tokens_2]).fit()
+        same_size_token_lists = CbSizeFitter([code_tokens_1, code_tokens_2], max_size=max_size).fit()
         embeddings = self.get_context_embed_batch(same_size_token_lists)
         embed1 = embeddings[0]
         embed2 = embeddings[1]
@@ -170,7 +170,7 @@ class CodeBertModel:
         delta_time.print('embed and cosine similarity')
         return sim
 
-    def cosine_similarity_sentences(self, statement1, statement2, max_size=MAX_TOKENS, space_token="Ġ"):
+    def cosine_similarity_sentences(self, statement1, statement2, max_size: int = MAX_TOKENS, space_token="Ġ"):
         code_tokens_1 = self.tokenize(statement1)
         code_tokens_2 = self.tokenize(statement2)
         return self.cosine_similarity_tokens(code_tokens_1, code_tokens_2, max_size, space_token)
@@ -236,7 +236,7 @@ class ListCodeBertPrediction(BaseModel):
         return self
 
     def get_original_and_predictions_tokens(self, code_bert_func: CodeBertFunction, masked_code, masked_token, suffix,
-                                            original_code_tokens):
+                                            original_code_tokens, max_size=MAX_TOKENS):
         assert_not_empty(masked_code, masked_token)
         if original_code_tokens is None or len(original_code_tokens) == 0:
             original_code = masked_code.replace(MASK, masked_token)
@@ -247,7 +247,7 @@ class ListCodeBertPrediction(BaseModel):
             predicted_code = prediction.put_token_inplace(masked_code, suffix)
             predicted_code_tokens = code_bert_func.tokenize(predicted_code)
             result.append(predicted_code_tokens)
-        return CbSizeFitter(result).fit()
+        return CbSizeFitter(result, max_size=max_size).fit()
 
     def add_cosine_nosuf_same_as_cosine(self):
         for x in self.__root__:
@@ -288,24 +288,24 @@ class CodeBertCosineEmbed(CodeBertModel):
         super().__init__(CODE_BERT_MLM_MODEL, VOCAB_DIR, VOCAB_FILE)
 
     def cosine_1_to_many(self, first: FileSnippet, clones: List[FileSnippet], item_to_keep=MASK,
-                         batch_size=PREDICTIONS_COUNT):
+                         batch_size=PREDICTIONS_COUNT, max_size: int = MAX_TOKENS):
         assert batch_size > 0
         batch_size = min(batch_size, len(clones))
         sims = []
         # embed chunk by chunk
         for i in range(0, len(clones))[::batch_size]:
-            batch_clones_tokens = [fs.fit_max(self, MAX_TOKENS, item_to_keep).snippet_tokens for fs in
+            batch_clones_tokens = [fs.fit_max(self, max_size, item_to_keep).snippet_tokens for fs in
                                    list(clones[i:min(i + batch_size, len(clones))])]
-            first_tokens = first.fit_max(self, MAX_TOKENS, item_to_keep).snippet_tokens
-            tokens = CbSizeFitter([first_tokens] + batch_clones_tokens).fit()
+            first_tokens = first.fit_max(self, max_size, item_to_keep).snippet_tokens
+            tokens = CbSizeFitter([first_tokens] + batch_clones_tokens, max_size=max_size).fit()
             embeddings = self.get_context_embed_batch(tokens)
             sims.extend(cosine_similarity_chunk(torch_cosine, embeddings[0], embeddings[1:]))
         return sims
 
-    def cosine_1_to_many_dep(self, first, clones, batch_size=0):
+    def cosine_1_to_many_dep(self, first, clones, batch_size=0, max_size: int = MAX_TOKENS):
         # put in same array and make sure they are all of the same size.
-        return self.cosine_similarity_batch(CbSizeFitter([first] + clones).fit(), k=len(clones), batch_size=batch_size)[
-            0]
+        return self.cosine_similarity_batch(CbSizeFitter([first] + clones, max_size=max_size).fit(), k=len(clones),
+                                            batch_size=batch_size)[0]
 
 
 class CodeBertMlmFillMask(CodeBertFunction):
