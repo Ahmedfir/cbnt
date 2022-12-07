@@ -63,7 +63,23 @@ class Location(BaseModel):
 class LineLocations(BaseModel):
     line_number: int
     cos_func: str = 'scipy'
+    # fixme make sure the the locations are unique.
     locations: List[Location]
+
+    def unique_locations(self, with_preds_only=True) -> List[Location]:
+        """because of an issue in spoon, often we get duplicate tokens in the return stmts.
+        this should be handled early on, in the future.
+        This is a temporary solution,
+         but a proper discarding of the duplicated locations early on must be implemented.
+         """
+        # fixme make sure the the locations are unique.
+        res = []
+        for l in self.locations:
+            if (not with_preds_only or l.predictions is not None) and not any((
+                                                                                      lambda: t.codePosition.startPosition == l.codePosition.startPosition and t.codePosition.endPosition == l.codePosition.endPosition)()
+                                                                              for t in res):
+                res.append(l)
+        return res
 
     @staticmethod
     def _calculate_cosine_by_loc(lp, cbm, masked_code, masked_token, suffix, original_code_tokens, max_size=MAX_TOKENS):
@@ -74,17 +90,19 @@ class LineLocations(BaseModel):
 
     def _batch_cosine_per_loc(self, cbm, masked_codes, reqs, locs_preds, add_cosine_nosuffix, max_size=MAX_TOKENS):
         # add cosines to the predictions and predictions to locations.
-        for i, location in enumerate(self.locations):
+        for i, location in enumerate(self.locations):  # fixme use unique_locs instead of locations
             loc_has_no_suffix = is_empty_strip(location.suffix)
             lp = locs_preds[i]
             if not lp.has_cosines():
                 # calculate cosines
-                cosines = self._calculate_cosine_by_loc(lp, cbm, masked_codes[i], reqs[i][0], reqs[i][3], reqs[i][2], max_size=max_size)
+                cosines = self._calculate_cosine_by_loc(lp, cbm, masked_codes[i], reqs[i][0], reqs[i][3], reqs[i][2],
+                                                        max_size=max_size)
                 lp.add_cosine(cosines, loc_has_no_suffix)
             if add_cosine_nosuffix and not lp.has_cosine_nosufs():
                 if not loc_has_no_suffix:
                     # calculate cosines
-                    cosines_nosuf = self._calculate_cosine_by_loc(lp, cbm, masked_codes[i], reqs[i][0], '', reqs[i][2], max_size=max_size)
+                    cosines_nosuf = self._calculate_cosine_by_loc(lp, cbm, masked_codes[i], reqs[i][0], '', reqs[i][2],
+                                                                  max_size=max_size)
                     lp.add_cosine_nosuf(cosines_nosuf)
                 else:
                     lp.add_cosine_nosuf_same_as_cosine()
@@ -94,13 +112,16 @@ class LineLocations(BaseModel):
     def _batch_cosine_locs(self, cbm, masked_codes, reqs, locs_preds, add_cosine_nosuffix, max_size=MAX_TOKENS):
         # get tokens
         locs_pred_tokens = [
-            lp.get_original_and_predictions_tokens(cbm, masked_codes[i], reqs[i][0], reqs[i][3], reqs[i][2], max_size=max_size)
+            lp.get_original_and_predictions_tokens(cbm, masked_codes[i], reqs[i][0], reqs[i][3], reqs[i][2],
+                                                   max_size=max_size)
             for i, lp in enumerate(locs_preds)]
 
         if add_cosine_nosuffix:
             locs_pred_tokens_nosuf = [
-                lp.get_original_and_predictions_tokens(cbm, masked_codes[i], reqs[i][0], '', reqs[i][2], max_size=max_size)
-                for i, lp in enumerate(locs_preds) if not is_empty_strip(self.locations[i].suffix)]
+                lp.get_original_and_predictions_tokens(cbm, masked_codes[i], reqs[i][0], '', reqs[i][2],
+                                                       max_size=max_size)
+                for i, lp in enumerate(locs_preds) if
+                not is_empty_strip(self.locations[i].suffix)]  # fixme use unique_locs instead of locations
             if len(locs_pred_tokens_nosuf) > 0:
                 locs_pred_tokens.extend(locs_pred_tokens_nosuf)
 
@@ -121,24 +142,27 @@ class LineLocations(BaseModel):
         j = -1
         # add cosines to the predictions and predictions to locations.
         for i, lp in enumerate(locs_preds):
-            loc_has_no_suffix = is_empty_strip(self.locations[i].suffix)
+            loc_has_no_suffix = is_empty_strip(
+                self.locations[i].suffix)  # fixme use unique_locations instead of locations
             lp.add_cosine(cosines[i], loc_has_no_suffix)
             if not loc_has_no_suffix and add_cosine_nosuffix:
                 j = j + 1
                 lp.add_cosine_nosuf(cosines_nosuf[j])
-            self.locations[i].set_predictions(lp)
+            self.locations[i].set_predictions(lp)  # fixme use unique_locations instead of locations
 
     def has_predictions(self):
-        return all([loc.predictions is not None for loc in self.locations])
+        return all([loc.predictions is not None for loc in self.unique_locations(with_preds_only=False)])
 
     def job_done(self, job_config):
         return (not job_config.add_cosine or job_config.cosine_func == self.cos_func) and all(
-            [loc.predictions is not None and loc.predictions.job_done(job_config) for loc in self.locations]
+            [loc.predictions is not None and loc.predictions.job_done(job_config) for loc in
+             self.unique_locations(with_preds_only=False)]
         )
 
     def process_locs(self, cbm, file_string, method_start, method_end, method_tokens, method_before_tokens,
                      method_after_tokens, job_config: JobConfig, max_size=MAX_TOKENS):
         # log.info('pred : line {0}'.format(str(self.line_number)))
+        # fixme make sure the the locations are unique, use unique_locations when possible.
 
         # get requests
         reqs = [loc.get_pred_req(file_string, method_start, method_end, method_tokens, cbm,
@@ -164,6 +188,8 @@ class LineLocations(BaseModel):
             for i in
             range(len(predictions_arr_arr)) if len(masked_codes[i]) > 0 and len(reqs[i][0]) > 0]
         # checking that nothing is missing else ignore these locs.
+        # fixme make sure the the locations are unique, use unique_locations when possible.
+        #  this check will have to be adapted.
         if not (len(locs_preds) == len(predictions_arr_arr) == len(reqs) == len(self.locations)):
             log.error(
                 '{0} locations (tokens) are ignored in line {1} because of a missing param: '
@@ -175,12 +201,15 @@ class LineLocations(BaseModel):
             if self.cos_func != job_config.cosine_func:
                 self._reset_cosines(locs_preds)
             if job_config.memory_aware:
-                self._batch_cosine_per_loc(cbm, masked_codes, reqs, locs_preds, job_config.add_cosine_nosuff, max_size=max_size)
+                self._batch_cosine_per_loc(cbm, masked_codes, reqs, locs_preds, job_config.add_cosine_nosuff,
+                                           max_size=max_size)
             else:
-                self._batch_cosine_locs(cbm, masked_codes, reqs, locs_preds, job_config.add_cosine_nosuff, max_size=max_size)
+                self._batch_cosine_locs(cbm, masked_codes, reqs, locs_preds, job_config.add_cosine_nosuff,
+                                        max_size=max_size)
             self.cos_func = job_config.cosine_func
         else:
             for i, lp in enumerate(locs_preds):
+                # fixme make sure the the locations are unique, use unique_locations when possible.
                 self.locations[i].set_predictions(lp)
 
     @staticmethod
@@ -279,7 +308,7 @@ class Method:
 class Mutant:
 
     def __init__(self, proj_bug_id, id, cosine, rank, version, match_org, score, file_path, class_name,
-                 method_signature, line, has_suffix, nodeType, masked_on_added=False):
+                 method_signature, line, has_suffix, nodeType, masked_on_added=False, old_val=None, new_val=None):
         self.proj_bug_id = proj_bug_id
         self.id = id
         self.cosine = cosine
@@ -297,6 +326,8 @@ class Mutant:
         self.has_suffix = has_suffix
         self.nodeType = nodeType
         self.masked_on_added = masked_on_added
+        self.old_val = old_val
+        self.pred_token = new_val
 
 
 class VersionName(Enum):
@@ -323,18 +354,20 @@ class ListFileLocations(BaseModel):
              for methodP in classP.methodPredictions
              ])
 
-    def to_mutants(self, proj_bug_id, version) -> DataFrame:
+    def to_mutants(self, proj_bug_id, version, exclude_matching=True, no_duplicates=True) -> DataFrame:
         return pd.DataFrame(
             [vars(Mutant(proj_bug_id, mutant.id, mutant.cosine, mutant.rank, version, mutant.match_org, mutant.score,
                          fileP.file_path, classP.qualifiedName, methodP.methodSignature, lineP.line_number,
-                         is_empty_strip(location.suffix), location.nodeType))
+                         is_empty_strip(location.suffix), location.nodeType, old_val=location.original_token,
+                         new_val=mutant.token_str + location.suffix))
 
              for fileP in self.__root__
              for classP in fileP.classPredictions
              for methodP in classP.methodPredictions
              for lineP in methodP.line_predictions
-             for location in lineP.locations if location.predictions is not None
-             for mutant in location.predictions.__root__])
+             for location in lineP.unique_locations()
+             for mutant in location.predictions.unique_preds(exclude_matching=exclude_matching,
+                                                             no_duplicates=no_duplicates)])
 
     def get_mutant_by_id(self, include):
         if include is None:
@@ -401,9 +434,10 @@ class ListFileLocations(BaseModel):
                        for classP in fileP.classPredictions
                        for methodP in classP.methodPredictions
                        for lineP in methodP.line_predictions
-                       for location in lineP.locations if location.predictions is not None
-                       for m in location.predictions.__root__ if
-                       not m.match_org and m.id not in already_treated_mutant_ids
+                       # todo get unique locations
+                       for location in lineP.unique_locations(with_preds_only=True)
+                       for m in
+                       location.predictions.unique_preds(exclude_ids=already_treated_mutant_ids)
                        ]
             if len(mutants) > 0:
                 result.append(FileReplacementMutants(fileP.file_path, mutants))

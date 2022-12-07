@@ -224,6 +224,14 @@ class CodeBertPrediction(BaseModel):
 class ListCodeBertPrediction(BaseModel):
     __root__: List[CodeBertPrediction]
 
+    def unique_preds(self, exclude_ids=None, exclude_matching=True, no_duplicates=True) -> List[CodeBertPrediction]:
+        res = []
+        for m in self.__root__:
+            if (not exclude_matching or not m.match_org) and (exclude_ids is None or m.id not in exclude_ids) and (
+                    not no_duplicates or len(res) == 0 or not any((lambda: p.token_str.strip() == m.token_str.strip())() for p in res)):
+                res.append(m)
+        return res
+
     def add_mutant_id(self, start_id=0):
         for i in range(len(self.__root__)):
             self.__root__[i].rank = i
