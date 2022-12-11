@@ -7,7 +7,10 @@ def patch_to_csv(file_path, output_file_path, ignore_empty_lines):
     output_path = Path(output_file_path)
     from os.path import isdir
     if not isdir(output_path.parent.absolute()):
-        os.makedirs(output_path.parent.absolute())
+        try:
+            os.makedirs(output_path.parent.absolute())
+        except FileExistsError:
+            print("two threads created the directory concurrently.")
     from utils.patch_parser import Patch
     p = Patch(file_path, ignore_empty_lines).parse_changed_lines()
     from dataclasses import make_dataclass

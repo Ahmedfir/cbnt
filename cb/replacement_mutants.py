@@ -43,7 +43,10 @@ class ReplacementMutant:
         output_patch_file = join(patches_output_dir, str(self.id) + Path(self.file_path).name + '.patch')
         if java_file and not isfile(output_file):
             if not isdir(join(mutant_classes_output_dir, str(self.id))):
-                makedirs(join(mutant_classes_output_dir, str(self.id)))
+                try:
+                    makedirs(join(mutant_classes_output_dir, str(self.id)))
+                except FileExistsError:
+                    log.debug("two threads created the directory concurrently.")
             if mutated_file is None:
                 if tmp_original_file is None:
                     tmp_original_file = load_file(self.file_path)
@@ -52,7 +55,10 @@ class ReplacementMutant:
             write_file(output_file, mutated_file)
         if patch_diff and not isfile(output_patch_file):
             if not isdir(patches_output_dir):
-                makedirs(patches_output_dir)
+                try:
+                    makedirs(patches_output_dir)
+                except FileExistsError:
+                    log.debug("two threads created the directory concurrently.")
             if mutated_file is None:
                 if tmp_original_file is None:
                     tmp_original_file = load_file(self.file_path)
