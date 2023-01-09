@@ -307,8 +307,11 @@ class Method:
 
 class Mutant:
 
-    def __init__(self, proj_bug_id, id, cosine, rank, version, match_org, score, file_path, class_name,
-                 method_signature, line, has_suffix, nodeType, masked_on_added=False, old_val=None, new_val=None):
+    def __init__(self, proj_bug_id, id, cosine, rank, version, match_org, score, file_path: str, class_name: str,
+                 method_signature: str, line: int, has_suffix, nodeType: str,
+                 operator: str, start_pos: int, end_pos: int,
+                 masked_on_added: bool = False, old_val: str = None, new_val: str = None,
+                 node: str = None):
         self.proj_bug_id = proj_bug_id
         self.id = id
         self.cosine = cosine
@@ -328,6 +331,10 @@ class Mutant:
         self.masked_on_added = masked_on_added
         self.old_val = old_val
         self.pred_token = new_val
+        self.node = node
+        self.start_pos = start_pos
+        self.end_pos = end_pos
+        self.operator = operator
 
 
 class VersionName(Enum):
@@ -358,8 +365,10 @@ class ListFileLocations(BaseModel):
         return pd.DataFrame(
             [vars(Mutant(proj_bug_id, mutant.id, mutant.cosine, mutant.rank, version, mutant.match_org, mutant.score,
                          fileP.file_path, classP.qualifiedName, methodP.methodSignature, lineP.line_number,
-                         is_empty_strip(location.suffix), location.nodeType, old_val=location.original_token,
-                         new_val=mutant.token_str + location.suffix))
+                         is_empty_strip(location.suffix), location.nodeType, location.operator,
+                         location.codePosition.startPosition, location.codePosition.endPosition,
+                         old_val=location.original_token,
+                         new_val=mutant.token_str + location.suffix, node=location.node))
 
              for fileP in self.__root__
              for classP in fileP.classPredictions
@@ -399,7 +408,8 @@ class ListFileLocations(BaseModel):
                        , mutant.rank, version_filter(fileP.file_path, lineP.line_number, changes),
                        mutant.match_org_nosuf, mutant.score,
                        fileP.file_path, classP.qualifiedName, methodP.methodSignature, lineP.line_number,
-                       is_empty_strip(location.suffix), location.nodeType))
+                       is_empty_strip(location.suffix), location.nodeType, location.operator,
+                       location.codePosition.startPosition, location.codePosition.endPosition, ))
 
                 for fileP in self.__root__
                 for classP in fileP.classPredictions
