@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from cb.code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS, MASK, ListCodeBertPrediction
 from cb.job_config import JobConfig
 from cb.predict_json_locs import surround_method, cut_method
-from cb.replacement_mutants import FileReplacementMutants, ReplacementMutant, DetailedReplacementMutant
+from cb.replacement_mutants import FileReplacementMutants, DetailedReplacementMutant
 from utils.assertion_utils import is_empty_strip
 from utils.file_read_write import load_file
 
@@ -22,17 +22,17 @@ log.addHandler(logging.StreamHandler(sys.stdout))
 
 
 class CodePosition(BaseModel):
-    startPosition: int
-    endPosition: int
+    startPosition: int = None
+    endPosition: int = None
 
 
 class Location(BaseModel):
-    node: str
-    codePosition: CodePosition
-    nodeType: str
-    firstMutantId: int
-    operator: str
-    suffix: str
+    node: str = None
+    codePosition: CodePosition = None
+    nodeType: str = None
+    firstMutantId: int = None
+    operator: str = None
+    suffix: str = None
     predictions: ListCodeBertPrediction = None
     original_token: str = None
 
@@ -61,10 +61,10 @@ class Location(BaseModel):
 
 
 class LineLocations(BaseModel):
-    line_number: int
+    line_number: int = None
     cos_func: str = 'scipy'
     # fixme make sure the the locations are unique.
-    locations: List[Location]
+    locations: List[Location] = None
 
     def unique_locations(self, with_preds_only=True) -> List[Location]:
         """because of an issue in spoon, often we get duplicate tokens in the return stmts.
@@ -219,11 +219,11 @@ class LineLocations(BaseModel):
 
 
 class MethodLocations(BaseModel):
-    startLineNumber: int
-    endLineNumber: int
-    codePosition: CodePosition
-    methodSignature: str
-    line_predictions: List[LineLocations]
+    startLineNumber: int = None
+    endLineNumber: int = None
+    codePosition: CodePosition = None
+    methodSignature: str = None
+    line_predictions: List[LineLocations] = None
 
     def job_done(self, job_config):
         return all([loc.job_done(job_config) for loc in self.line_predictions])
@@ -260,13 +260,13 @@ class MethodLocations(BaseModel):
 
 
 class ClassLocations(BaseModel):
-    qualifiedName: str
-    methodPredictions: List[MethodLocations]
+    qualifiedName: str = None
+    methodPredictions: List[MethodLocations] = None
 
 
 class FileLocations(BaseModel):
-    file_path: str
-    classPredictions: List[ClassLocations]
+    file_path: str = None
+    classPredictions: List[ClassLocations] = None
 
     def get_relative_path(self, source_dir):
         return self.file_path.split(source_dir)[1]
@@ -343,7 +343,7 @@ class VersionName(Enum):
 
 
 class ListFileLocations(BaseModel):
-    __root__: List[FileLocations]
+    __root__: List[FileLocations] = None
 
     def job_done(self, job_config):
         return all([file_loc.job_done(job_config) for file_loc in self.__root__])
@@ -438,8 +438,12 @@ class ListFileLocations(BaseModel):
             already_treated_mutant_ids = set()
 
         for fileP in self.__root__:
-            mutants = [ReplacementMutant(m.id, fileP.file_path, location.codePosition.startPosition,
-                                         location.codePosition.endPosition + 1, m.token_str + location.suffix)
+            mutants = [DetailedReplacementMutant(lineP.line_number, location.original_token,
+                                                 str(location.nodeType),
+                                                 m.id, fileP.file_path, location.codePosition.startPosition,
+                                                 location.codePosition.endPosition + 1, m.token_str + location.suffix)
+                       # ReplacementMutant(m.id, fileP.file_path, location.codePosition.startPosition,
+                       #                      location.codePosition.endPosition + 1, m.token_str + location.suffix)
 
                        for classP in fileP.classPredictions
                        for methodP in classP.methodPredictions

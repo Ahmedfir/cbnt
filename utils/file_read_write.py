@@ -8,6 +8,11 @@ def load_file(file_path: str) -> str:
         return file.read()
 
 
+def load_file_lines(file_path: str) -> str:
+    with open(file_path) as f:
+        return f.readlines()
+
+
 def write_csv_row(file_path, row):
     import csv
     with open(file_path, 'a', encoding='UTF8', newline='') as f:
