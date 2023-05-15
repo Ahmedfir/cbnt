@@ -35,7 +35,14 @@ class ReplacementMutant:
     def apply_mutation(self, original):
         return original[: self.start] + self.replacement + original[self.end:]
 
-    def output_mutated_file(self, mutant_classes_output_dir, tmp_original_file=None, mutated_file=None, patch_diff=False,
+    def to_csv_line(self, *args) -> List:
+        res = [self.id, self.compilable, self.broken_tests]
+        if args is not None and len(args) > 0:
+            res = res + [arg for arg in args]
+        return res
+
+    def output_mutated_file(self, mutant_classes_output_dir, tmp_original_file=None, mutated_file=None,
+                            patch_diff=False,
                             java_file=False):
         assert patch_diff or java_file, "You need to chose at least one of these formats: patch_diff or java_file"
         output_file = join(mutant_classes_output_dir, str(self.id), Path(self.file_path).name)
@@ -64,6 +71,20 @@ class ReplacementMutant:
                     tmp_original_file = load_file(self.file_path)
                 mutated_file = self.apply_mutation(tmp_original_file)
             print_patch(tmp_original_file, mutated_file, output_patch_file)
+
+    def compile(self, project, tmp_original_file=None, reset=True) -> bool:
+        log.debug('{0} - compile in {1}'.format(str(self.id), self.file_path))
+
+        if tmp_original_file is None:
+            tmp_original_file = load_file(self.file_path)
+        mutated_file = self.apply_mutation(tmp_original_file)
+        try:
+            write_file(self.file_path, mutated_file)
+            self.compilable = project.compile()
+        finally:
+            if reset:
+                write_file(self.file_path, tmp_original_file)
+        return self.compilable
 
     def compile_execute(self, project, mutant_classes_output_dir, tmp_original_file=None, reset=True, patch_diff=False,
                         java_file=False):

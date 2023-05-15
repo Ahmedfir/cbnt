@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 from enum import Enum
-from os.path import isfile
+from os.path import isfile, join
 from typing import List
 
 import numpy as np
@@ -295,7 +295,7 @@ class Method:
     def __init__(self, proj_bug_id, fileP, classP, methodP, version):
         self.pid_bid = proj_bug_id
         self.file = fileP.file_path
-        self.rel_file = fileP.get_relative_path(proj_bug_id)
+        self.rel_file = fileP.get_relative_path(proj_bug_id + '/')
         self.version = version
         self.class_name = classP.qualifiedName
         self.method_signature = methodP.methodSignature
@@ -303,6 +303,10 @@ class Method:
         self.line_end = methodP.endLineNumber
         self.char_start = methodP.codePosition.startPosition
         self.char_end = methodP.codePosition.endPosition
+
+    def get_code(self, repo_path):
+        file_string = load_file(join(repo_path, self.rel_file))
+        return file_string[self.char_start: self.char_end + 1]
 
 
 class Mutant:
@@ -352,14 +356,19 @@ class ListFileLocations(BaseModel):
         for file_loc in self.__root__:
             file_loc.process_locs(cbm, job_config, max_size=max_size)
 
-    def to_methods(self, proj_bug_id, version) -> DataFrame:
-        return pd.DataFrame(
-            [vars(Method(proj_bug_id, fileP, classP, methodP, version))
+    def to_methods_list(self, proj_bug_id, version) -> List[Method]:
+        return [Method(proj_bug_id, fileP, classP, methodP, version)
 
-             for fileP in self.__root__
-             for classP in fileP.classPredictions
-             for methodP in classP.methodPredictions
-             ])
+                for fileP in self.__root__
+                for classP in fileP.classPredictions
+                for methodP in classP.methodPredictions]
+
+    def to_methods(self, proj_bug_id, version) -> DataFrame:
+        return pd.DataFrame([vars(Method(proj_bug_id, fileP, classP, methodP, version))
+
+                             for fileP in self.__root__
+                             for classP in fileP.classPredictions
+                             for methodP in classP.methodPredictions])
 
     def to_mutants(self, proj_bug_id, version, exclude_matching=True, no_duplicates=True) -> DataFrame:
         return pd.DataFrame(
