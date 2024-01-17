@@ -15,4 +15,7 @@ class DeltaTime:
 
     def print(self, message='DeltaTime'):
         if PRINT_DELTA_TIME:
-            log.debug('DTime - {0} : {1}'.format(message, datetime.datetime.now() - self.start))
+            diff = datetime.datetime.now() - self.start
+            log.debug('DTime - {0} : {1}'.format(message, diff))
+            return diff
+        return None

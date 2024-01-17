@@ -3,14 +3,14 @@ import os
 import sys
 from enum import Enum
 from os.path import isfile, join
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
 from pydantic import BaseModel
 
-from cb.code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS, MASK, ListCodeBertPrediction
+from cb.code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS, MASK, ListCodeBertPrediction, MAX_BATCH_SIZE
 from cb.job_config import JobConfig
 from cb.predict_json_locs import surround_method, cut_method
 from cb.replacement_mutants import FileReplacementMutants, DetailedReplacementMutant
@@ -160,7 +160,7 @@ class LineLocations(BaseModel):
         )
 
     def process_locs(self, cbm, file_string, method_start, method_end, method_tokens, method_before_tokens,
-                     method_after_tokens, job_config: JobConfig, max_size=MAX_TOKENS):
+                     method_after_tokens, job_config: JobConfig, max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE):
         # log.info('pred : line {0}'.format(str(self.line_number)))
         # fixme make sure the the locations are unique, use unique_locations when possible.
 
@@ -180,7 +180,7 @@ class LineLocations(BaseModel):
             predictions_arr_arr = [loc.predictions for loc in self.locations]
         else:
             # predicting...
-            predictions_arr_arr = cbm.call_func(masked_codes)
+            predictions_arr_arr = cbm.call_func(masked_codes, batch_size=batch_size)
 
         #  adding of the prediction matches the masked token.
         locs_preds = [
@@ -228,7 +228,8 @@ class MethodLocations(BaseModel):
     def job_done(self, job_config):
         return all([loc.job_done(job_config) for loc in self.line_predictions])
 
-    def process_locs(self, cbm: CodeBertMlmFillMask, file_string, job_config, max_size: int = MAX_TOKENS):
+    def process_locs(self, cbm: CodeBertMlmFillMask, file_string, job_config, max_size: int = MAX_TOKENS,
+                     batch_size=MAX_BATCH_SIZE):
         # log.info('pred : method {0}'.format(self.methodSignature))
         # log.info('--- parallel {0}'.format(str(parallel)))
         if self.job_done(job_config):
@@ -256,7 +257,7 @@ class MethodLocations(BaseModel):
 
         for line_loc in self.line_predictions:
             line_loc.process_locs(cbm, file_string, method_start, method_end, method_tokens, method_before_tokens,
-                                  method_after_tokens, job_config, max_size=max_size)
+                                  method_after_tokens, job_config, max_size=max_size, batch_size=batch_size)
 
 
 class ClassLocations(BaseModel):
@@ -274,7 +275,7 @@ class FileLocations(BaseModel):
     def job_done(self, job_config):
         return all([m.job_done(job_config) for c in self.classPredictions for m in c.methodPredictions])
 
-    def process_locs(self, cbm, job_config, max_size=MAX_TOKENS):
+    def process_locs(self, cbm, job_config, max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE):
         if self.job_done(job_config):
             log.info('skipped already processed file {0}'.format(self.file_path))
             return
@@ -285,7 +286,7 @@ class FileLocations(BaseModel):
                 # log.info('pred : class {0}'.format(class_loc.qualifiedName))
                 method_locs = class_loc.methodPredictions
                 for method_loc in method_locs:
-                    method_loc.process_locs(cbm, file_string, job_config, max_size=max_size)
+                    method_loc.process_locs(cbm, file_string, job_config, max_size=max_size, batch_size=batch_size)
         except UnicodeDecodeError:
             log.exception('Failed to load file : {0}'.format(self.file_path))
 
@@ -352,9 +353,9 @@ class ListFileLocations(BaseModel):
     def job_done(self, job_config):
         return all([file_loc.job_done(job_config) for file_loc in self.__root__])
 
-    def process_locs(self, cbm, job_config=JobConfig(), max_size=MAX_TOKENS):
+    def process_locs(self, cbm, job_config=JobConfig(), max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE):
         for file_loc in self.__root__:
-            file_loc.process_locs(cbm, job_config, max_size=max_size)
+            file_loc.process_locs(cbm, job_config, max_size=max_size, batch_size=batch_size)
 
     def to_methods_list(self, proj_bug_id, version) -> List[Method]:
         return [Method(proj_bug_id, fileP, classP, methodP, version)
@@ -370,7 +371,19 @@ class ListFileLocations(BaseModel):
                              for classP in fileP.classPredictions
                              for methodP in classP.methodPredictions])
 
-    def to_mutants(self, proj_bug_id, version, exclude_matching=True, no_duplicates=True) -> DataFrame:
+    def to_mutants(self, proj_bug_id, version, not_commented_lines: Dict = None, not_commented_areas: Dict = None,
+                   stats: Dict = None,
+                   exclude_matching=True,
+                   no_duplicates=True) -> DataFrame:
+        if stats is not None:
+            if 'simp_match_org' not in stats.keys():
+                stats['simp_match_org'] = 0
+            if 'simp_dupl' not in stats.keys():
+                stats['simp_dupl'] = 0
+            if 'commented_lines' not in stats.keys():
+                stats['commented_lines'] = 0
+            if 'commented_locs' not in stats.keys():
+                stats['commented_locs'] = 0
         return pd.DataFrame(
             [vars(Mutant(proj_bug_id, mutant.id, mutant.cosine, mutant.rank, version, mutant.match_org, mutant.score,
                          fileP.file_path, classP.qualifiedName, methodP.methodSignature, lineP.line_number,
@@ -382,9 +395,13 @@ class ListFileLocations(BaseModel):
              for fileP in self.__root__
              for classP in fileP.classPredictions
              for methodP in classP.methodPredictions
-             for lineP in methodP.line_predictions
-             for location in lineP.unique_locations()
-             for mutant in location.predictions.unique_preds(exclude_matching=exclude_matching,
+             for lineP in methodP.line_predictions if not_commented_lines is None
+             # or self.not_commented_line(lineP, not_commented_lines[fileP.file_path.split(proj_bug_id)[1]], stats)
+             for location in lineP.unique_locations() if not_commented_areas is None
+             # or self.not_commented_loc(location.codePosition,
+             #                           not_commented_areas[fileP.file_path.split(proj_bug_id)[1]],
+             #                           stats)
+             for mutant in location.predictions.unique_preds(stats=stats, exclude_matching=exclude_matching,
                                                              no_duplicates=no_duplicates)])
 
     def get_mutant_by_id(self, include):
@@ -440,7 +457,7 @@ class ListFileLocations(BaseModel):
 
     def get_mutants_to_exec(self, output_csv) -> List[FileReplacementMutants]:
         result = []
-        if isfile(output_csv):
+        if output_csv is not None and isfile(output_csv):
             already_treated_mutant_df = pd.read_csv(output_csv)
             already_treated_mutant_ids = set(already_treated_mutant_df['id'].unique())
         else:
@@ -457,7 +474,6 @@ class ListFileLocations(BaseModel):
                        for classP in fileP.classPredictions
                        for methodP in classP.methodPredictions
                        for lineP in methodP.line_predictions
-                       # todo get unique locations
                        for location in lineP.unique_locations(with_preds_only=True)
                        for m in
                        location.predictions.unique_preds(exclude_ids=already_treated_mutant_ids)
@@ -466,3 +482,18 @@ class ListFileLocations(BaseModel):
                 result.append(FileReplacementMutants(fileP.file_path, mutants))
 
         return result
+
+    # fixme use another parser than spoon. - this is giving no good results for older versions of java.
+    # def not_commented_line(self, lineP, not_commented_lines, stats) -> bool:
+    #     not_commented_line = lineP.line_number in not_commented_lines
+    #     if not not_commented_line and stats is not None:
+    #         stats['commented_lines'] = stats['commented_lines'] + 1
+    #     return not_commented_line
+    #
+    # # fixme use another parser than spoon. - this is giving no good results for older versions of java.
+    # def not_commented_loc(self, loc: CodePosition, not_commented_areas, stats) -> bool:
+    #     not_commented_loc = any((lambda: loc.startPosition >= n[0] and loc.endPosition <= n[1])()
+    #                             for n in not_commented_areas)
+    #     if not not_commented_loc and stats is not None:
+    #         stats['commented_locs'] = stats['commented_locs'] + 1
+    #     return not_commented_loc

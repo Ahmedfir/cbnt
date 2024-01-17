@@ -1,4 +1,5 @@
 import logging
+import shutil
 import sys
 from os import makedirs
 from os.path import join, isfile, isdir
@@ -41,13 +42,35 @@ class ReplacementMutant:
             res = res + [arg for arg in args]
         return res
 
+    def mutated_output_java_file(self, mutant_classes_output_dir):
+        return join(mutant_classes_output_dir, str(self.id), Path(self.file_path).name)
+
+    def mutated_output_bin_file(self, mutant_classes_output_dir):
+        return join(mutant_classes_output_dir, str(self.id), Path(self.file_path).name.replace('.java', '.class'))
+
+    def output_mutated_bin_file(self, mutant_classes_output_dir, project, bin_file_path,
+                                tmp_original_file=None):
+        bin_output_file = self.mutated_output_bin_file(mutant_classes_output_dir)
+        # output bin file
+        if not isfile(bin_output_file):
+            if not isdir(join(mutant_classes_output_dir, str(self.id))):
+                try:
+                    makedirs(join(mutant_classes_output_dir, str(self.id)))
+                except FileExistsError:
+                    log.debug("two threads created the directory concurrently.")
+            if self.compile(project, tmp_original_file):
+                shutil.copy(bin_file_path, Path(bin_output_file).parent)
+            else:
+                log.critical('Comp Failed mu_id {0} on: {1}'.format(str(self.id), self.file_path))
+
     def output_mutated_file(self, mutant_classes_output_dir, tmp_original_file=None, mutated_file=None,
-                            patch_diff=False,
-                            java_file=False):
+                            patch_diff=False, java_file=False):
         assert patch_diff or java_file, "You need to chose at least one of these formats: patch_diff or java_file"
-        output_file = join(mutant_classes_output_dir, str(self.id), Path(self.file_path).name)
+        output_file = self.mutated_output_java_file(mutant_classes_output_dir)
         patches_output_dir = mutant_classes_output_dir + '_patches'
         output_patch_file = join(patches_output_dir, str(self.id) + Path(self.file_path).name + '.patch')
+
+        # output src java file
         if java_file and not isfile(output_file):
             if not isdir(join(mutant_classes_output_dir, str(self.id))):
                 try:
@@ -58,8 +81,9 @@ class ReplacementMutant:
                 if tmp_original_file is None:
                     tmp_original_file = load_file(self.file_path)
                 mutated_file = self.apply_mutation(tmp_original_file)
-
             write_file(output_file, mutated_file)
+
+        # output patch diff
         if patch_diff and not isfile(output_patch_file):
             if not isdir(patches_output_dir):
                 try:

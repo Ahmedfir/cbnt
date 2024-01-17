@@ -1,7 +1,7 @@
 import json
 from os.path import isfile
 
-from cb.code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS
+from cb.code_bert_mlm import CodeBertMlmFillMask, MAX_TOKENS, MAX_BATCH_SIZE
 from cb.json_locs_parser import JobConfig
 from cb.json_locs_parser import ListFileLocations
 
@@ -58,15 +58,17 @@ def predict_json(masked_code_tokens_json: str, masked_token: str = None):
     return result
 
 
-def predict_json_locs(sc_json_file: str, cbm: CodeBertMlmFillMask = None, job_config=JobConfig(), max_size=MAX_TOKENS):
+def predict_json_locs(sc_json_file: str, cbm: CodeBertMlmFillMask = None, job_config=JobConfig(), max_size=MAX_TOKENS,
+                      batch_size=MAX_BATCH_SIZE):
     if cbm is None:
         cbm = CodeBertMlmFillMask()
     file_locs: ListFileLocations = ListFileLocations.parse_file(sc_json_file)
     print('++++++ attempt process json {0} ++++++'.format(sc_json_file))
-    return predict_locs(file_locs, cbm, job_config, max_size=max_size)
+    return predict_locs(file_locs, cbm, job_config, max_size=max_size, batch_size=batch_size)
 
 
-def predict_locs(file_locs: ListFileLocations, cbm: CodeBertMlmFillMask = None, job_config=JobConfig(), max_size=MAX_TOKENS):
+def predict_locs(file_locs: ListFileLocations, cbm: CodeBertMlmFillMask = None, job_config=JobConfig(),
+                 max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE):
     if cbm is None:
         cbm = CodeBertMlmFillMask()
     print('++++++ processing ++++++')
@@ -74,5 +76,5 @@ def predict_locs(file_locs: ListFileLocations, cbm: CodeBertMlmFillMask = None, 
         print('++++++ already processed ++++++')
         print('job config: {0}'.format(vars(job_config)))
     else:
-        file_locs.process_locs(cbm, job_config, max_size=max_size)
+        file_locs.process_locs(cbm, job_config, max_size=max_size, batch_size=batch_size)
     return file_locs

@@ -4,8 +4,9 @@ import os
 import sys
 from functools import lru_cache
 from os.path import isdir, join, isfile
-from typing import List
+from typing import List, Dict
 
+import torch
 from pydantic import BaseModel
 from transformers import RobertaTokenizer, RobertaForMaskedLM
 
@@ -25,13 +26,17 @@ MAX_TOKENS = 500
 # default
 PREDICTIONS_COUNT = 5
 log = logging.getLogger(__name__)
+#log.setLevel(logging.DEBUG)
 log.addHandler(logging.StreamHandler(sys.stdout))
 MAX_BATCH_SIZE = 20
 
+PREDS = 0
+TOTAL_PRED_TIME = None
+
 
 class CbSizeFitter(SizeFitter):
-    def __init__(self, items_arr, max_size: int = MAX_TOKENS):
-        super(CbSizeFitter, self).__init__(items_arr, size=max_size, filling_item=SPACE_TOKEN)
+    def __init__(self, items_arr, max_size: int = MAX_TOKENS, filling_item=SPACE_TOKEN):
+        super(CbSizeFitter, self).__init__(items_arr, size=max_size, filling_item=filling_item)
 
 
 class CodeBertModel:
@@ -45,18 +50,21 @@ class CodeBertModel:
         """Loads a vocabulary file into a dictionary."""
         import collections
         vocab = collections.OrderedDict()
-        f = open(vocab_file, )
-        import json
-        reader = json.load(f)
-        for token in reader.keys():
-            index = reader[token]
-            token = token.encode("ascii", "ignore").decode()
-            token = ''.join(token.split())
-            vocab[index] = token
-        f.close()
+        if vocab_file.endswith('.json'):
+            f = open(vocab_file, )
+            import json
+            reader = json.load(f)
+            for token in reader.keys():
+                index = reader[token]
+                token = token.encode("ascii", "ignore").decode()
+                token = ''.join(token.split())
+                vocab[index] = token
+            f.close()
+        else:
+            log.warning('Vocab file cannot be loaded: {0}'.format(vocab_file))
         return vocab
 
-    def __init__(self, pretrained_model_name, vocab_dir, vocab_file):
+    def init_model_tokenizer(self, pretrained_model_name, vocab_dir, vocab_file):
         if not isdir(vocab_dir) or 0 == len(os.listdir(vocab_dir)) or not isfile(vocab_file):
             self.model = RobertaForMaskedLM.from_pretrained(pretrained_model_name)
             self.tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name)
@@ -64,7 +72,11 @@ class CodeBertModel:
         else:
             self.model = RobertaForMaskedLM.from_pretrained(vocab_dir)
             self.tokenizer = RobertaTokenizer.from_pretrained(vocab_dir)
+
+    def __init__(self, pretrained_model_name, vocab_dir, vocab_file):
+        self.init_model_tokenizer(pretrained_model_name, vocab_dir, vocab_file)
         self.vocab_dict = self.load_vocab(vocab_file)
+        log.info('num threads in torch:' + str(torch.get_num_threads()))
 
         # @list_to_tuple
         # @lru_cache(maxsize=2, typed=False)
@@ -154,13 +166,14 @@ class CodeBertModel:
         return sims
 
     @tuple_to_list
-    def cosine_similarity_tokens(self, code_tokens_1, code_tokens_2, max_size=MAX_TOKENS):
+    def cosine_similarity_tokens(self, code_tokens_1, code_tokens_2, max_size=MAX_TOKENS, space_token=SPACE_TOKEN):
         assert_not_empty(code_tokens_1, code_tokens_2)
         # both tokens vectors have to be smaller or equal to max_size.
         # remove same number of tokens from the end of both sequences:
         # we don't want to have impactful differences which are not related to the mutation.
         delta_time = DeltaTime()
-        same_size_token_lists = CbSizeFitter([code_tokens_1, code_tokens_2], max_size=max_size).fit()
+        same_size_token_lists = CbSizeFitter([code_tokens_1, code_tokens_2], max_size=max_size,
+                                             filling_item=space_token).fit()
         embeddings = self.get_context_embed_batch(same_size_token_lists)
         embed1 = embeddings[0]
         embed2 = embeddings[1]
@@ -170,7 +183,10 @@ class CodeBertModel:
         delta_time.print('embed and cosine similarity')
         return sim
 
-    def cosine_similarity_sentences(self, statement1, statement2, max_size: int = MAX_TOKENS, space_token="Ġ"):
+    def cosine_similarity_sentences_pair(self, statements, max_size: int = MAX_TOKENS, space_token=SPACE_TOKEN):
+        return self.cosine_similarity_sentences(statements[0], statements[1], max_size=max_size, space_token=space_token)
+
+    def cosine_similarity_sentences(self, statement1, statement2, max_size: int = MAX_TOKENS, space_token=SPACE_TOKEN):
         code_tokens_1 = self.tokenize(statement1)
         code_tokens_2 = self.tokenize(statement2)
         return self.cosine_similarity_tokens(code_tokens_1, code_tokens_2, max_size, space_token)
@@ -224,11 +240,18 @@ class CodeBertPrediction(BaseModel):
 class ListCodeBertPrediction(BaseModel):
     __root__: List[CodeBertPrediction]
 
-    def unique_preds(self, exclude_ids=None, exclude_matching=True, no_duplicates=True) -> List[CodeBertPrediction]:
+    def unique_preds(self, stats: Dict = None, exclude_ids=None, exclude_matching=True, no_duplicates=True) -> List[
+        CodeBertPrediction]:
         res = []
         for m in self.__root__:
+            is_duplicate = len(res) > 0 and any((lambda: p.token_str.strip() == m.token_str.strip())() for p in res)
+            if stats is not None:
+                if m.match_org:
+                    stats['simp_match_org'] = stats['simp_match_org'] + 1
+                if is_duplicate:
+                    stats['simp_dupl'] = stats['simp_dupl'] + 1
             if (not exclude_matching or not m.match_org) and (exclude_ids is None or m.id not in exclude_ids) and (
-                    not no_duplicates or len(res) == 0 or not any((lambda: p.token_str.strip() == m.token_str.strip())() for p in res)):
+                    not no_duplicates or not is_duplicate):
                 res.append(m)
         return res
 
@@ -322,20 +345,39 @@ class CodeBertMlmFillMask(CodeBertFunction):
         self.predictions_number = predictions_number
 
     def call_func(self, arg, batch_size=MAX_BATCH_SIZE):
-        delta_time = DeltaTime()
+        global PREDS
+        global TOTAL_PRED_TIME
+        delta_time = DeltaTime(logging_level=logging.DEBUG)
         if isinstance(arg, list) and len(arg) > 1:
-            batch_size = min(batch_size, len(arg))
-            call_output = []
-            # embed chunk by chunk
-            for i in range(0, len(arg))[::batch_size]:
-                batch_args = [fs for fs in
-                              list(arg[i:min(i + batch_size, len(arg))])]
-                call_output.extend(super().call_func(batch_args))
-            result = [ListCodeBertPrediction.parse_obj(co) for co in call_output]
+            if batch_size > 1:
+                batch_size = min(batch_size, len(arg))
+                log.debug(batch_size)
+                call_output = []
+                # embed chunk by chunk
+                for i in range(0, len(arg))[::batch_size]:
+                    batch_args = [fs for fs in
+                                  list(arg[i:min(i + batch_size, len(arg))])]
+                    call_output.extend(super().call_func(batch_args))
+                try:
+                    result = [ListCodeBertPrediction.parse_obj(co) for co in call_output]
+                except Exception as e:
+                    log.error('call_output :\n ' + str(call_output))
+                    raise e
+            else:
+                result = [ListCodeBertPrediction.parse_obj(super().call_func(a)) for a in arg]
+            diff = delta_time.print('{0} masked codes'.format(len(arg)))
+            if diff is not None:
+                PREDS = PREDS + (len(arg) * PREDICTIONS_COUNT)
+                TOTAL_PRED_TIME = diff if TOTAL_PRED_TIME is None else TOTAL_PRED_TIME + diff
+                log.info('{0} for {1} predictions'.format(TOTAL_PRED_TIME, PREDS))
         else:
             call_output = super().call_func(arg)
             result = [ListCodeBertPrediction.parse_obj(call_output)]
-        delta_time.print('prediction')
+            diff = delta_time.print('1 masked code')
+            if diff is not None:
+                PREDS = PREDS + (len(arg) * PREDICTIONS_COUNT)
+                TOTAL_PRED_TIME = diff if TOTAL_PRED_TIME is None else TOTAL_PRED_TIME + diff
+                log.debug('{0} for {1} predictions'.format(TOTAL_PRED_TIME, PREDS))
         return result
 
     # this is not used at all - i am just adding smell here...

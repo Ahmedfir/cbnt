@@ -11,7 +11,7 @@ class SizeFitter:
 
     def __init__(self, items_arr, size, filling_item, shortening_strategy=ShorteningStrategy.LAST_ITEM):
         self.items_arr = items_arr
-        self.size = size
+        self.size = min(size, max([len(l) for l in self.items_arr]))
         self.filling_item = filling_item
         self.shortening_strategy = shortening_strategy
 
@@ -19,8 +19,12 @@ class SizeFitter:
         return max([len(l) - self.size for l in self.items_arr])
 
     def _fill_to_size(self, arr: List):
-        while len(arr) < self.size:
-            arr.append(self.filling_item)
+        if isinstance(arr, list):
+            while len(arr) < self.size:
+                arr.append(self.filling_item)
+        else:
+            while len(arr) < self.size:
+                arr = arr + self.filling_item
         return arr
 
     def fit(self):
@@ -59,4 +63,3 @@ def scipy_cosine(matrix1, matrix2):
     sim = 1 - dis
     # delta_time.print('cosine_similarity_mats sim')
     return sim
-
