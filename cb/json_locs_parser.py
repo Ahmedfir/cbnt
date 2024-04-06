@@ -1,8 +1,9 @@
 import logging
 import os
+import pathlib
 import sys
 from enum import Enum
-from os.path import isfile, join
+from os.path import isfile, join, isdir
 from typing import List, Dict
 
 import numpy as np
@@ -180,6 +181,9 @@ class LineLocations(BaseModel):
             predictions_arr_arr = [loc.predictions for loc in self.locations]
         else:
             # predicting...
+            # masked_code is an array of code containing a masking token
+            # for each masked_code_item we will receieve an array of 5 predictions
+            # [[]]
             predictions_arr_arr = cbm.call_func(masked_codes, batch_size=batch_size)
 
         #  adding of the prediction matches the masked token.
@@ -275,13 +279,31 @@ class FileLocations(BaseModel):
     def job_done(self, job_config):
         return all([m.job_done(job_config) for c in self.classPredictions for m in c.methodPredictions])
 
-    def process_locs(self, cbm, job_config, max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE):
+    def process_locs(self, cbm, job_config, max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE, repo_dir=None):
         if self.job_done(job_config):
             log.info('skipped already processed file {0}'.format(self.file_path))
             return
         log.info('pred : file {0}'.format(self.file_path))
         try:
-            file_string = load_file(self.file_path)
+            try:
+                file_string = load_file(self.file_path)
+            except FileNotFoundError as e:
+                log.error('Could not load file:\n{0}\nTrying to fix the path...'.format(self.file_path))
+                if repo_dir is None:
+                    log.error('Could not fix the absolute path because the repo_dir was not given.')
+                elif not isdir(repo_dir):
+                    log.error(
+                        'Could not fix the absolute path because the given repo_dir is not a directory:\n{0}'.format(
+                            repo_dir))
+                else:
+                    rel = self.get_relative_path(pathlib.Path(repo_dir).name + '/')
+                    new_path = join(repo_dir, rel)
+                    if not isfile(new_path):
+                        log.error(
+                            'Could not fix the absolute path with the given repo_dir:\n{0}\nfile not find:\n{1}'.format(
+                                repo_dir, new_path))
+                    else:
+                        file_string = load_file(new_path)
             for class_loc in self.classPredictions:
                 # log.info('pred : class {0}'.format(class_loc.qualifiedName))
                 method_locs = class_loc.methodPredictions
@@ -353,9 +375,9 @@ class ListFileLocations(BaseModel):
     def job_done(self, job_config):
         return all([file_loc.job_done(job_config) for file_loc in self.__root__])
 
-    def process_locs(self, cbm, job_config=JobConfig(), max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE):
+    def process_locs(self, cbm, job_config=JobConfig(), max_size=MAX_TOKENS, batch_size=MAX_BATCH_SIZE, repo_dir=None):
         for file_loc in self.__root__:
-            file_loc.process_locs(cbm, job_config, max_size=max_size, batch_size=batch_size)
+            file_loc.process_locs(cbm, job_config, max_size=max_size, batch_size=batch_size, repo_dir=repo_dir)
 
     def to_methods_list(self, proj_bug_id, version) -> List[Method]:
         return [Method(proj_bug_id, fileP, classP, methodP, version)
@@ -403,6 +425,19 @@ class ListFileLocations(BaseModel):
              #                           stats)
              for mutant in location.predictions.unique_preds(stats=stats, exclude_matching=exclude_matching,
                                                              no_duplicates=no_duplicates)])
+
+    def get_scores(self, proj_bug_id) -> DataFrame:
+        tuples = [(proj_bug_id, mutant.score, mutant.rank)
+
+                  for fileP in self.__root__
+                  for classP in fileP.classPredictions
+                  for methodP in classP.methodPredictions
+                  for lineP in methodP.line_predictions
+                  for location in lineP.unique_locations()
+
+                  for mutant in location.predictions.__root__]
+        df = pd.DataFrame(tuples, columns=['proj_bug_id', 'score', 'rank'])
+        return df
 
     def get_mutant_by_id(self, include):
         if include is None:
