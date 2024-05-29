@@ -2,6 +2,8 @@ import difflib
 import logging
 import os
 import sys
+from typing import List
+from urllib.parse import urlparse
 
 from utils.cmd_utils import safe_chdir
 
@@ -10,13 +12,26 @@ log.setLevel(logging.DEBUG)
 log.addHandler(logging.StreamHandler(sys.stdout))
 
 
+def uri_validator(x):
+    try:
+        result = urlparse(x)
+        return all([result.scheme, result.netloc])
+    except AttributeError:
+        return False
+
+
 def clone_checkout(url, repo_dir, rev_hash):
+    if url is None or len(url) == 0 or not uri_validator(url):
+        raise Exception("Clone Failed: Wrong URL.")
+
     log.debug(os.getcwd())
     log.info('Cloning {0} into {1}'.format(url, repo_dir))
-    os.system('git clone ' + url + ' ' + repo_dir)
+    clone_cmd: List[str] =['git', 'clone', url, repo_dir]
+    os.system(" ".join(clone_cmd))
     with safe_chdir(repo_dir):
         log.info('checking-out {0}'.format(rev_hash))
-        os.system('git checkout ' + rev_hash)
+        checkout_cmd: List[str] = ['git', 'checkout', rev_hash]
+        os.system(" ".join(checkout_cmd))
 
 
 _no_eol = "\ No newline at end of file"
