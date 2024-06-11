@@ -111,7 +111,7 @@ class ReplacementMutant:
         return self.compilable
 
     def compile_execute(self, project, mutant_classes_output_dir, tmp_original_file=None, reset=True, patch_diff=False,
-                        java_file=False):
+                        java_file=False, target_tests=None):
         log.debug('{0} - compile_execute in {1}'.format(str(self.id), self.file_path))
 
         if tmp_original_file is None:
@@ -126,7 +126,7 @@ class ReplacementMutant:
                                              tmp_original_file=tmp_original_file,
                                              patch_diff=patch_diff, java_file=java_file)
                 try:
-                    self.broken_tests = project.test()
+                    self.broken_tests = project.test(target_tests)
                 except TimeoutExpired:
                     self.broken_tests = TESTS_TIME_OUT_RESULT
         finally:
