@@ -107,6 +107,8 @@ class CodeBertModel:
             code_tokens_ids) > 0, "Wrong argument ! pass a source code to tokenize as string !"
         decoded_str = self.tokenizer.decode(code_tokens_ids)
         if MASK in decoded_str:
+            # the detokenization removes space surrounding the MASK token, therefore we add one again before it.
+            # see return statement example in test/src/test_code_bert_mlm.py.
             decoded_str = decoded_str.replace(MASK, " " + MASK)
         return decoded_str
 
