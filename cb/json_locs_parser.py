@@ -23,18 +23,29 @@ log.addHandler(logging.StreamHandler(sys.stdout))
 
 
 class CodePosition(BaseModel):
+    """
+    start and end in chars.
+    """
     startPosition: int = None
     endPosition: int = None
 
 
 class Location(BaseModel):
+    #
     node: str = None
+    # in chars
     codePosition: CodePosition = None
+    #
     nodeType: str = None
+    # e.g. 0
     firstMutantId: int = None
+    #
     operator: str = None
+    # None
     suffix: str = None
+    # filled by the predictions
     predictions: ListCodeBertPrediction = None
+    # e.g. + or >
     original_token: str = None
 
     def get_pred_req(self, file_string, method_start, method_end, method_tokens, cbm,
@@ -65,6 +76,7 @@ class LineLocations(BaseModel):
     line_number: int = None
     cos_func: str = 'scipy'
     # fixme make sure the the locations are unique.
+    # nodes or tokens : locations : objects of type Location
     locations: List[Location] = None
 
     def unique_locations(self, with_preds_only=True) -> List[Location]:
@@ -165,12 +177,12 @@ class LineLocations(BaseModel):
         # log.info('pred : line {0}'.format(str(self.line_number)))
         # fixme make sure the the locations are unique, use unique_locations when possible.
 
-        # get requests
+        # get requests: all nodes of a line into an array
         reqs = [loc.get_pred_req(file_string, method_start, method_end, method_tokens, cbm,
                                  method_before_tokens, method_after_tokens, max_size=max_size)
                 for loc in self.locations]
 
-        # predict
+        # preparing array of masked methods
         masked_codes = [cbm.decode_tokens_to_str(masked_code_tokens_req[1]) for masked_code_tokens_req in reqs]
 
         for code in masked_codes:
@@ -223,10 +235,15 @@ class LineLocations(BaseModel):
 
 
 class MethodLocations(BaseModel):
+    # start line
     startLineNumber: int = None
+    # end line
     endLineNumber: int = None
+    # code start end in chars of the method
     codePosition: CodePosition = None
+    # method signature (function name)
     methodSignature: str = None
+    # list of the lines of the method
     line_predictions: List[LineLocations] = None
 
     def job_done(self, job_config):
@@ -241,14 +258,20 @@ class MethodLocations(BaseModel):
             return
         method_start = self.codePosition.startPosition
         method_end = self.codePosition.endPosition
+        # filestring contains all the code (string) of the given file.
+        # extracts the code of the method only from the file.
         method_string = file_string[method_start: method_end + 1]
         if len(method_string.strip()) == 0:
             log.error('Failed to load method in [ {0} , {1} ] named : {2}'.format(method_start, method_end,
                                                                                   self.methodSignature))
             return
+        # tokenize the method.
         method_tokens = cbm.tokenize(method_string)
+        # contains string before the method
         method_before_tokens = None
+        # contains string after the method
         method_after_tokens = None
+        # e.g. maxsize for CodeBert 512.
         if len(method_tokens) < max_size:
             max_tokens_to_add = max_size - len(method_tokens)
             method_before_str = file_string[max(0, method_start - max_tokens_to_add):method_start - 1]
@@ -259,6 +282,7 @@ class MethodLocations(BaseModel):
                                                                                        method_before_tokens,
                                                                                        method_after_tokens, max_size)
 
+        # processing inside of the method: lines
         for line_loc in self.line_predictions:
             line_loc.process_locs(cbm, file_string, method_start, method_end, method_tokens, method_before_tokens,
                                   method_after_tokens, job_config, max_size=max_size, batch_size=batch_size)
@@ -304,6 +328,9 @@ class FileLocations(BaseModel):
                                 repo_dir, new_path))
                     else:
                         file_string = load_file(new_path)
+
+            # the core of the method:
+            # class by class
             for class_loc in self.classPredictions:
                 # log.info('pred : class {0}'.format(class_loc.qualifiedName))
                 method_locs = class_loc.methodPredictions
